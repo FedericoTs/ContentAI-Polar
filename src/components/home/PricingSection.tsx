@@ -1,48 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
-import { CheckCircle2, ChevronRight, Loader2, X } from "lucide-react";
+import { X } from "lucide-react";
 import { useAuth } from "../../../supabase/auth";
 import { useToast } from "@/components/ui/use-toast";
 import { supabase } from "../../../supabase/supabase";
-
-// Define the Plan type
-interface Plan {
-  createdAt: string;
-  modifiedAt: string | null;
-  id: string;
-  name: string;
-  description: string;
-  recurringInterval: string;
-  isRecurring: boolean;
-  isArchived: boolean;
-  organizationId: string;
-  metadata: Record<string, any>;
-  prices: {
-    createdAt: string;
-    modifiedAt: string | null;
-    id: string;
-    amountType: string;
-    isArchived: boolean;
-    productId: string;
-    type: string;
-    recurringInterval: string;
-    priceCurrency: string;
-    priceAmount: number;
-  }[];
-  benefits: any[];
-  medias: any[];
-  attachedCustomFields: any[];
-}
+import PlanCard, { Plan } from "./PlanCard";
 
 export default function PricingSection() {
   const { user } = useAuth();
@@ -131,17 +93,96 @@ export default function PricingSection() {
     }
   };
 
+  useEffect(() => {
+    const fetchPlans = async () => {
+      setIsLoading(true);
+      setError("");
+
+      try {
+        console.log("Fetching plans from supabase function...");
+        const functionName = "supabase-functions-get-plans";
+        console.log(`Invoking function: ${functionName}`);
+
+        const { data, error } = await supabase.functions.invoke(
+          functionName,
+          {},
+        );
+
+        console.log("Response received:", { data, error });
+
+        if (error) {
+          console.error("Supabase function error:", error);
+          throw new Error(
+            `Function error: ${error.message || JSON.stringify(error)}`,
+          );
+        }
+
+        if (!data) {
+          console.error("No data returned from function");
+          throw new Error("No data returned from pricing function");
+        }
+
+        console.log("Raw plans data:", data);
+
+        // Check if data is an array
+        // Check if data has an items property (Polar API response format)
+        const plansArray =
+          data.items && Array.isArray(data.items) ? data.items : data;
+        console.log("Plans array to process:", plansArray);
+
+        // Process the plans data
+        const processedPlans = plansArray.map((plan: Plan) => {
+          console.log("Processing plan:", plan);
+          return {
+            ...plan,
+            isHighlighted: plan.name.toLowerCase().includes("growth"),
+          };
+        });
+
+        // Sort plans by tier if available in metadata, otherwise by price
+        const sortedPlans = processedPlans.sort((a: Plan, b: Plan) => {
+          // If tier exists in metadata, sort by tier
+          if (a.metadata?.tier && b.metadata?.tier) {
+            return a.metadata.tier - b.metadata.tier;
+          }
+
+          // Otherwise sort by price
+          const aPrice =
+            a.prices && a.prices.length > 0 ? a.prices[0].priceAmount : 0;
+          const bPrice =
+            b.prices && b.prices.length > 0 ? b.prices[0].priceAmount : 0;
+          return aPrice - bPrice;
+        });
+
+        console.log("Final sorted plans:", sortedPlans);
+        setPlans(sortedPlans);
+      } catch (err: any) {
+        console.error("Error fetching plans:", err);
+        // More specific error message based on the error type
+        const errorMessage =
+          err.message ||
+          "Failed to load pricing plans. Please try again later.";
+        console.error("Setting error message:", errorMessage);
+        setError(errorMessage);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchPlans();
+  }, []);
+
   return (
-    <section className="py-16 md:py-24 bg-white">
+    <section className="py-16 md:py-24 bg-gradient-to-b from-white to-gray-50">
       <div className="container px-4 mx-auto">
         <div className="text-center mb-16">
-          <Badge className="mb-4 bg-gray-200 text-gray-800 hover:bg-gray-300 border-none">
+          <Badge className="mb-4 bg-blue-100 text-blue-800 hover:bg-blue-200 border-none font-medium px-3 py-1">
             Pricing
           </Badge>
-          <h2 className="text-3xl md:text-4xl font-bold tracking-tight mb-4 text-black">
+          <h2 className="text-3xl md:text-5xl font-bold tracking-tight mb-6 text-black bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-teal-500">
             Simple, Transparent Pricing
           </h2>
-          <p className="text-gray-600 max-w-[700px] mx-auto">
+          <p className="text-gray-600 max-w-[700px] mx-auto text-lg">
             Choose the perfect plan for your needs. All plans include access to
             our core features. No hidden fees or surprises.
           </p>
@@ -164,92 +205,28 @@ export default function PricingSection() {
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {plans?.map((plan) => (
-            <Card
-              key={plan.id}
-              className="flex flex-col h-full border-gray-200 bg-gradient-to-b from-white to-gray-50 shadow-lg hover:shadow-xl transition-all"
-            >
-              <CardHeader className="pb-4">
-                <div className="flex justify-between items-center">
-                  <CardTitle className="text-xl font-bold text-black">
-                    {plan.name || "Basic"}
-                  </CardTitle>
-                  {!plan.isArchived && (
-                    <Badge
-                      variant="outline"
-                      className="bg-gray-100 text-gray-800 border-gray-300"
-                    >
-                      Popular
-                    </Badge>
-                  )}
-                </div>
-                <CardDescription className="text-sm text-gray-600">
-                  {plan.isRecurring
-                    ? `${plan.recurringInterval.charAt(0).toUpperCase() + plan.recurringInterval.slice(1)}ly`
-                    : "One-time"}
-                </CardDescription>
-                <div className="mt-4">
-                  {plan.prices && plan.prices.length > 0 && (
-                    <>
-                      <span className="text-4xl font-bold text-black">
-                        {formatCurrency(
-                          plan.prices[0].priceAmount,
-                          plan.prices[0].priceCurrency,
-                        )}
-                      </span>
-                      <span className="text-gray-600">
-                        /{plan.prices[0].recurringInterval}
-                      </span>
-                    </>
-                  )}
-                </div>
-              </CardHeader>
-              <CardContent className="flex-grow">
-                <Separator className="my-4 bg-gray-200" />
-                <ul className="space-y-3">
-                  {plan.description &&
-                    plan.description.split("\n").map((feature, index) => (
-                      <li
-                        key={index}
-                        className="flex items-start text-gray-700"
-                      >
-                        <CheckCircle2 className="h-5 w-5 text-black mr-2 flex-shrink-0 mt-0.5" />
-                        <span>{feature}</span>
-                      </li>
-                    ))}
-                </ul>
-              </CardContent>
-              <CardFooter>
-                <Button
-                  className="w-full bg-black text-white hover:bg-gray-800"
-                  onClick={() =>
-                    plan.prices &&
-                    plan.prices.length > 0 &&
-                    handleCheckout(plan.prices[0].id)
-                  }
-                  disabled={
-                    isLoading || !plan.prices || plan.prices.length === 0
-                  }
-                >
-                  {isLoading &&
-                  processingPlanId ===
-                    (plan.prices && plan.prices.length > 0
-                      ? plan.prices[0].id
-                      : "") ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Processing...
-                    </>
-                  ) : (
-                    <>
-                      Subscribe Now
-                      <ChevronRight className="ml-1 h-4 w-4" />
-                    </>
-                  )}
-                </Button>
-              </CardFooter>
-            </Card>
-          ))}
+          {plans.length > 0 ? (
+            plans.map((plan) => (
+              <PlanCard
+                key={plan.id}
+                plan={plan}
+                isLoading={isLoading}
+                processingPlanId={processingPlanId}
+                onCheckout={handleCheckout}
+                formatCurrency={formatCurrency}
+              />
+            ))
+          ) : (
+            <div className="col-span-3 text-center py-12">
+              {isLoading ? (
+                <p className="text-gray-600">Loading pricing plans...</p>
+              ) : (
+                <p className="text-gray-600">
+                  No pricing plans available at this time.
+                </p>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </section>
